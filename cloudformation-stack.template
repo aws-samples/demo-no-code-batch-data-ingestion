@@ -1,0 +1,133 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Parameters:
+  S3BucketName:
+    Description: |
+      The name of an existing Amazon S3 bucket that's in same Region as this deployment.
+    Type: String
+
+Resources:
+# >>> API Service
+  IAMPolicy:
+    Type: 'AWS::IAM::Policy'
+    Properties:
+      Roles:
+        - "DataFlowDemoIAMRole"
+      PolicyName: DataFlowDemoIAMPolicy
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource: "*"
+          - Effect: Allow
+            Action:
+              - s3:PutObject
+            Resource: !Sub arn:aws:s3:::${S3BucketName}/*
+    DependsOn:
+      - IAMRole
+
+  IAMRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: DataFlowDemoIAMRole
+      AssumeRolePolicyDocument: |-
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Principal": {
+                "Service": "apigateway.amazonaws.com"
+              },
+              "Effect": "Allow",
+              "Sid": ""
+            }
+          ]
+        }
+# <<< API Service
+# >>> Amazon API gateway
+  ApiGatewayUsagePlan:
+    Type: AWS::ApiGateway::UsagePlan
+    Properties:
+      ApiStages:
+        - ApiId: !Ref ApiGatewayRestApi
+          Stage: dev
+      Description: DataFlowDemo
+      UsagePlanName: DataFlowDemo
+    DependsOn:
+      - ApiGatewayDeployment
+
+  ApiGatewayApiKey:
+    Type: AWS::ApiGateway::ApiKey
+    Properties:
+      Description: "DataFlowDemo"
+      Name: DataFlowDemo
+      Enabled: true
+      StageKeys:
+        - RestApiId: !Ref ApiGatewayRestApi
+          StageName: dev
+    DependsOn:
+      - ApiGatewayDeployment
+
+  ApiGatewayUsagePlanKey:
+    Type: AWS::ApiGateway::UsagePlanKey
+    Properties:
+      KeyId: !Ref ApiGatewayApiKey
+      KeyType: API_KEY
+      UsagePlanId: !Ref ApiGatewayUsagePlan
+
+  ApiGatewayRestApi:
+    Type: 'AWS::ApiGateway::RestApi'
+    Properties:
+      Name: "DataFlowDemo"
+      Description: "DataFlowDemo"
+  ApiGatewayResource:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId: !Ref ApiGatewayRestApi
+      ParentId: !GetAtt ApiGatewayRestApi.RootResourceId
+      PathPart: "{proxy+}"
+  ApiGatewayMethod:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      HttpMethod: "PUT"
+      ResourceId: !Ref ApiGatewayResource
+      RestApiId: !Ref ApiGatewayRestApi
+      AuthorizationType: NONE
+      ApiKeyRequired: true
+      RequestParameters:
+        method.request.header.Content-Type: false
+        method.request.path.proxy: true
+      Integration:
+        Type: AWS
+        IntegrationHttpMethod: "PUT"
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:s3:path/{proxy}
+        Credentials: !GetAtt IAMRole.Arn
+        RequestParameters:
+          integration.request.header.Content-Type: method.request.header.Content-Type
+          integration.request.path.proxy: method.request.path.proxy
+        IntegrationResponses:
+          - StatusCode: 200
+      MethodResponses:
+        - StatusCode: 200
+          ResponseModels: { "application/json": "Empty" }
+
+  ApiGatewayDeployment:
+    Type: AWS::ApiGateway::Deployment
+    Properties:
+      RestApiId: !Ref ApiGatewayRestApi
+      StageName: dev
+      Description: DataFlowDemo
+    DependsOn:
+      - ApiGatewayMethod
+
+# >>> Outputs
+Outputs:
+  ApiGatewayUrlEndpoint:
+    Value: !Sub https://${ApiGatewayRestApi}.execute-api.${AWS::Region}.amazonaws.com/dev/${S3BucketName}
+  ApiKeyValue:
+    Value: !Sub https://${AWS::Region}.console.aws.amazon.com/apigateway/home#/api-keys/${ApiGatewayApiKey.APIKeyId}
