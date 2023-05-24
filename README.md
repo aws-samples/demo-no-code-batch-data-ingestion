@@ -1,4 +1,4 @@
-# Demo instructions for the no-code data ingestion using Amazon API Gateway
+# Demo instructions for the no-code data ingestion using Amazon API Gateway and Amazon S3
 
 This solution demonstrates simple no-code ingestion approach for batch type of ingestion use cases.
 
